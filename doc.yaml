@@ -1,0 +1,69 @@
+openapi: 3.0.0
+info:
+  description: "Веб-сервис идентифицирующий пользователя по отпечатку пальца"
+  title: Golang Fingerprint Matching
+  version: "0.1"
+paths:
+  /identify:
+    post:
+      tags:
+        - Идентификация
+      description: |
+        Идентификация отпечатка пальца, полученного в запросе
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                fingerprint:
+                  type: string
+                  format: binary
+                  description: .BMP файл содержащий изображение отпечатка пальца
+      responses:
+        "200":
+          description: Идентификация прошла успешно
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentificationResponse"
+              examples:
+                response:
+                  value: |-
+                    {
+                      "matches_with": "7__M_Left_little_finger",
+                      "features": 34,
+                      "likeness": 0.61
+                    }
+
+        "400":
+          description: Отпечаток пальца не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                response:
+                  value: |-
+                    {
+                      "error": "Fingerprint not found"
+                    }
+components:
+  schemas:
+    IdentificationResponse:
+      description: Ответ с результатами идентификации
+      properties:
+        matches_with:
+          type: string
+          description: Имя шаблона, с которым совпал отпечаток
+        features:
+          type: integer
+          description: Количество признаков в отпечатке=
+        likeness:
+          type: number
+          description: Сходство с образцом (0-1)
+    Error:
+      properties:
+        error:
+          nullable: false
+          type: string

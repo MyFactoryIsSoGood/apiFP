@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  fp:
+    stdin_open: true
+    tty: true
+    build: ./
+    ports:
+      - 8080:8080
+    depends_on:
+      - db
+    environment:
+      BASE_URL: http:/192.168.65.5:8080
+      PORT: :8080
+      DB_NAME: Fingerprints
+      DB_USERNAME: postgres
+      DB_PASSWORD: 123qwe123
+
+  db:
+    restart: always
+    image: postgres:latest
+    volumes:
+      - ./.database/postgres/data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: 123qwe123
+      POSTGRES_USER: postgres
+      POSTGRES_DB: Fingerprints
+    ports:
+      - "5436:5432"
