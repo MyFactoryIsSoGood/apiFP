@@ -10,13 +10,12 @@ import (
 var DB *gorm.DB
 
 func ConnectDB() {
-	fmt.Println(os.Getenv("DB_USERNAME"))
-	fmt.Println(os.Getenv("DB_NAME"))
-	fmt.Println(os.Getenv("DB_PASSWORD"))
+	//Docker config:
 	args := fmt.Sprintf("user=%v dbname=%v password=%v sslmode=disable host=db port=5432",
 		os.Getenv("DB_USERNAME"),
 		os.Getenv("DB_NAME"),
 		os.Getenv("DB_PASSWORD"))
+
 	//args := "user=postgres dbname=Fingerprints password=123qwe123 sslmode=disable host=localhost port=5432"
 	db, err := gorm.Open("postgres", args)
 

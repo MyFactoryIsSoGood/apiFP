@@ -12,7 +12,6 @@ import (
 	"image/draw"
 	"io/ioutil"
 	"net/http"
-	"os"
 )
 
 type TemplateRawData struct {
@@ -30,7 +29,7 @@ func main() {
 	addTemplatesHandler := http.HandlerFunc(addTemplates)
 	http.Handle("/identify", identifyFingerprintHandler)
 	http.Handle("/addTemplates", addTemplatesHandler)
-	err := http.ListenAndServe(os.Getenv("PORT"), nil)
+	err := http.ListenAndServe(":8000", nil)
 	if err != nil {
 		panic(err)
 	}

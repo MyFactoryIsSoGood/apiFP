@@ -5,14 +5,9 @@ import (
 	"apiFP/template/matrix"
 	"apiFP/template/utils"
 	"github.com/disintegration/imaging"
-	"golang.org/x/image/bmp"
 	"image"
 	"image/color"
 	"image/draw"
-	"image/jpeg"
-	"image/png"
-	"os"
-	"path/filepath"
 	"sync"
 )
 
@@ -33,8 +28,21 @@ type MinType byte
 
 type Mask [3][3]uint8
 
+// Passes checks if pattern of sector matches mask argument
+func (m Mask) Passes(sector Mask) bool {
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			if m[i][j] != sector[i][j] && m[i][j] != 1 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 type MasksSet []Mask
 
+// MaskSets for all 3 types of morphological operations
 var Skeletonization = MasksSet{
 	Mask{
 		{ridge, ridge, any},
@@ -174,6 +182,7 @@ var Clean = MasksSet{
 	},
 }
 
+// SemiBin removes all pixels with value less than threshold. But if pixel is higher, it stays the same
 func SemiBin(img *image.Gray, thresh uint8) *image.Gray {
 	out := image.NewGray(img.Bounds())
 	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
@@ -188,7 +197,7 @@ func SemiBin(img *image.Gray, thresh uint8) *image.Gray {
 	return out
 }
 
-// Binarize returns new binarized image
+// Binarize returns new binarized image by threshold
 func Binarize(in *image.Gray, threshold uint8) *image.Gray {
 	var out = image.NewGray(in.Bounds())
 	for y := 0; y < in.Bounds().Dy(); y++ {
@@ -203,6 +212,7 @@ func Binarize(in *image.Gray, threshold uint8) *image.Gray {
 	return out
 }
 
+// OtsuThresholdValue calculates optimal threshold for picture binarization
 func OtsuThresholdValue(img *image.Gray) uint8 {
 	var histogram [256]uint64
 	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
@@ -249,6 +259,7 @@ func OtsuThresholdValue(img *image.Gray) uint8 {
 	return thresh
 }
 
+// Resize is a util function to resize image to gray object. Uses imaging.Resize and image.Gray
 func Resize(in *image.Gray, width int, height int, filt imaging.ResampleFilter) *image.Gray {
 	out := imaging.Resize(in, width, height, filt)
 	gray := image.NewGray(out.Bounds())
@@ -256,6 +267,8 @@ func Resize(in *image.Gray, width int, height int, filt imaging.ResampleFilter) 
 	return gray
 }
 
+// Directions return directions matrix for image. Uses Sobel operator for generating gradients by Y and by X
+// With obtained gradients we can calculate directions matrix
 func Directions(img *image.Gray) *matrix.M {
 	normalizedMatrix := matrix.NewFromGray(img)
 	bounds := normalizedMatrix.Bounds()
@@ -267,6 +280,7 @@ func Directions(img *image.Gray) *matrix.M {
 	return directions
 }
 
+// processRowsInParallel is a util function to apply morphological operators(Skeletization, disconnection and clean) to image in parallel
 func processRowsInParallel(in *image.Gray, from, to int, mask Mask, blacklist *[][2]int, wg *sync.WaitGroup, mtx *sync.Mutex) {
 	bounds := in.Bounds()
 	for y := from; y < to; y++ {
@@ -287,6 +301,8 @@ func processRowsInParallel(in *image.Gray, from, to int, mask Mask, blacklist *[
 	wg.Done()
 }
 
+// Morphological returns new image with applied morphological operator. Works in parallel with 10 constant goroutines
+// Without parallelization the process slows down 7 times
 func Morphological(in *image.Gray, set MasksSet) {
 	bounds := in.Bounds()
 
@@ -326,6 +342,8 @@ func Morphological(in *image.Gray, set MasksSet) {
 	}
 }
 
+// ClearSkeleton removes garbage from image. Applies window of size [offset] to each pixel and if borders are white
+// fills all window by white
 func ClearSkeleton(skeleton *image.Gray, offset int) {
 	bounds := skeleton.Bounds()
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
@@ -358,19 +376,9 @@ func ClearSkeleton(skeleton *image.Gray, offset int) {
 			}
 		}
 	}
-} // remove valley noises
-
-func (m Mask) Passes(sector Mask) bool {
-	for i := 0; i < 3; i++ {
-		for j := 0; j < 3; j++ {
-			if m[i][j] != sector[i][j] && m[i][j] != 1 {
-				return false
-			}
-		}
-	}
-	return true
 }
 
+// Minutia provides minutia extraction from skeletonized image
 func Minutia(skeleton *image.Gray, filteredDirectional *matrix.M) []utils.Minutiae {
 	minutiaes := []utils.Minutiae{}
 	bounds := skeleton.Bounds()
@@ -391,6 +399,7 @@ func Minutia(skeleton *image.Gray, filteredDirectional *matrix.M) []utils.Minuti
 	return minutiaes
 }
 
+// matchMinutiaeType returns minutiae type of the given point
 func matchMinutiaeType(in *image.Gray, i, j int) MinType { //TODO: refactor
 	p0 := in.GrayAt(i-1, j-1).Y == ridge
 	p1 := in.GrayAt(i, j-1).Y == ridge
@@ -502,6 +511,7 @@ func matchMinutiaeType(in *image.Gray, i, j int) MinType { //TODO: refactor
 	return Unknown
 }
 
+// MinToTemplate converts minutiae to template
 func MinToTemplate(min []utils.Minutiae) utils.Template {
 	var template utils.Template
 	template.Header.Magic = "FMR"
@@ -523,58 +533,20 @@ func MinToTemplate(min []utils.Minutiae) utils.Template {
 	return template
 }
 
-func ReadGray(filename string) *image.Gray {
-	f, _ := os.Open(filename)
-	defer f.Close()
-	ext := filepath.Ext(filename)
-	var img image.Image
-	if ext == ".png" {
-		img, _ = png.Decode(f)
-	} else if ext == ".jpg" {
-		img, _ = jpeg.Decode(f)
-	} else {
-		img, _ = bmp.Decode(f)
-	}
-	gray := image.NewGray(img.Bounds())
-	draw.Draw(gray, img.Bounds(), img, image.Point{}, draw.Src)
-	return gray
-}
-
 func ImgToTemplate(gray *image.Gray) utils.Template {
-	//prev := time.Now()
 	gray = SemiBin(gray, 80)
-	//fmt.Println("SemiBin", time.Since(prev))
-	//prev = time.Now()
 	resized := Resize(gray, 400, 400, imaging.Lanczos)
-	//fmt.Println("Resize", time.Since(prev))
-	//prev = time.Now()
 	binarized := Binarize(resized, OtsuThresholdValue(gray))
-	//fmt.Println("Binarize", time.Since(prev))
-	//prev = time.Now()
-	Morphological(binarized, Disconnection) //disconnection
-	//fmt.Println("Disconnection", time.Since(prev))
-	//prev = time.Now()
+	Morphological(binarized, Disconnection)   //disconnection
 	Morphological(binarized, Skeletonization) //skeletonization
-	//fmt.Println("Skeletonization", time.Since(prev))
-	//prev = time.Now()
-	ClearSkeleton(binarized, 10) // clear dots and other garbage
-	//fmt.Println("ClearSkeleton", time.Since(prev))
-	//prev = time.Now()
-	Morphological(binarized, Clean) // clean spurs
-	//fmt.Println("Clean", time.Since(prev))
-	//prev = time.Now()
+	ClearSkeleton(binarized, 10)              // clear dots and other garbage
+	Morphological(binarized, Clean)           // clean spurs
 	directions := Directions(binarized)
-	//fmt.Println("Directions", time.Since(prev))
-	//prev = time.Now()
 
 	minutiae := Minutia(binarized, directions)
-	//fmt.Println("Minutia", time.Since(prev))
 	im := utils.DisplayMinutiae(minutiae, binarized)
 	utils.SavePNGImageColored(im, "minutiae.png")
 
-	//prev = time.Now()
 	template := MinToTemplate(minutiae)
-	//fmt.Println("MinToTemplate", time.Since(prev))
-	//utils.ISO19794TemplateToBin(template, strings.Split(filename, ".")[0]+".iso")
 	return template
 }

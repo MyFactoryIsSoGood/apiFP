@@ -5,8 +5,6 @@ import (
 	"apiFP/db"
 	"apiFP/template/utils"
 	"encoding/json"
-	"fmt"
-	"runtime"
 )
 
 type IdentificationResponse struct {
@@ -15,38 +13,55 @@ type IdentificationResponse struct {
 	Likeness    float64 `json:"likeness"`
 }
 
+// Identify is worker function for IdentifyInParallel. Takes templates from db and finds the best match
 func Identify(from, to int, tmp utils.Template, responseCh chan<- IdentificationResponse) {
+	maxPercent := 0.0
+	maxName := ""
+	maxFeatures := 0
 	for i := from; i < to; i++ {
 		byteFP, name := db.Take(i)
 
 		current := compare.ISO19794_BytesToTemplate(byteFP)
 
 		percent := compare.Compare(tmp, current)
-		if percent > 0.1 {
-			fmt.Println(i, percent)
+		if percent > maxPercent {
+			maxPercent = percent
+			maxName = name
+			maxFeatures = int(current.Fingerprints[0].MinutiaeCount)
 		}
-		if percent > 0.5 {
-			responseCh <- IdentificationResponse{
-				MatchesWith: name,
-				Features:    int(current.Fingerprints[0].MinutiaeCount),
-				Likeness:    percent,
-			}
-		}
+	}
+	responseCh <- IdentificationResponse{
+		MatchesWith: maxName,
+		Features:    maxFeatures,
+		Likeness:    maxPercent,
 	}
 }
 
+// IdentifyInParallel is function for identification. It takes template and returns the best match
 func IdentifyInParallel(tmp utils.Template) []byte {
 	results := make(chan IdentificationResponse, 100)
 	var fpCount int
 	db.DB.Table("iso_templates_strs").Count(&fpCount)
-	for w := 1; w < runtime.NumCPU(); w++ {
-		go Identify(fpCount/runtime.NumCPU()*w, fpCount/runtime.NumCPU()*(w+1), tmp, results)
+	for w := 1; w < 10; w++ {
+		go Identify(fpCount/10*w, fpCount/10*(w+1), tmp, results)
 	}
 
 	var a IdentificationResponse
-	a = <-results
+	var counter = 0
+	for b := range results {
+		counter++
+		if b.Likeness > a.Likeness {
+			a = b
+		}
+		if counter == 9 {
+			break
+		}
+	}
 	close(results)
 
+	if a.Likeness < 0.5 {
+		return []byte("no matches")
+	}
 	out, _ := json.Marshal(a)
 	return out
 }
